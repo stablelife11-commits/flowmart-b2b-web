@@ -1,22 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Role, LoginRequestDto, RegisterRequestDto } from '../../types/api';
-import { 
-  ShieldCheck, 
-  Store, 
-  ShoppingCart, 
-  ArrowRight, 
-  CheckCircle2, 
-  AlertCircle, 
-  Building2, 
-  FileText, 
-  Lock, 
-  Mail, 
-  User, 
-  Phone, 
-  MapPin, 
-  Sparkles 
+import {
+  ShieldCheck,
+  Store,
+  ShoppingCart,
+  ArrowRight,
+  CheckCircle2,
+  AlertCircle,
+  Building2,
+  Lock,
+  Mail,
+  User,
+  Phone,
+  MapPin,
+  Sparkles,
 } from 'lucide-react';
 
 export const PortalLandingPage: React.FC = () => {
@@ -24,7 +23,6 @@ export const PortalLandingPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Detect which portal is requested by URL
   const getInitialRole = (): Role => {
     if (location.pathname.includes('/admin')) return 'ADMIN';
     if (location.pathname.includes('/seller')) return 'SELLER';
@@ -34,11 +32,10 @@ export const PortalLandingPage: React.FC = () => {
   const [activeRole, setActiveRole] = useState<Role>(getInitialRole);
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
 
-  // Sync activeRole with URL changes
   useEffect(() => {
     if (location.pathname.includes('/admin')) {
       setActiveRole('ADMIN');
-      setAuthMode('LOGIN'); // Admin doesn't have public registration
+      setAuthMode('LOGIN');
     } else if (location.pathname.includes('/seller')) {
       setActiveRole('SELLER');
     } else if (location.pathname.includes('/buyer')) {
@@ -46,16 +43,15 @@ export const PortalLandingPage: React.FC = () => {
     }
   }, [location.pathname]);
 
-  // Form states
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [regPhone, setRegPhone] = useState('');
+  const [regMobile, setRegMobile] = useState('');
   const [regBusinessName, setRegBusinessName] = useState('');
-  const [regGstin, setRegGstin] = useState('');
+  const [regGstNumber, setRegGstNumber] = useState('');
   const [regAddress, setRegAddress] = useState('');
   const [regCity, setRegCity] = useState('');
   const [regState, setRegState] = useState('');
@@ -65,7 +61,6 @@ export const PortalLandingPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Switch role tab
   const handleRoleChange = (role: Role) => {
     setActiveRole(role);
     setErrorMessage(null);
@@ -81,9 +76,12 @@ export const PortalLandingPage: React.FC = () => {
   };
 
   const handleFillDemo = (role: Role) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
     if (role === 'ADMIN') {
-      setLoginEmail('admin@flowmart.com');
-      setLoginPassword('admin123');
+      // Matches backend DataInitializer.java default Admin credentials
+      setLoginEmail('admin@retailflow.com');
+      setLoginPassword('ChangeMeImmediately!123');
     } else if (role === 'SELLER') {
       setLoginEmail('seller@flowmart.com');
       setLoginPassword('seller123');
@@ -107,7 +105,7 @@ export const PortalLandingPage: React.FC = () => {
     const res = await login(payload, activeRole);
     setIsSubmitting(false);
 
-    if (res.success) {
+    if (res.success && res.user) {
       if (activeRole === 'ADMIN') navigate('/admin');
       else if (activeRole === 'SELLER') navigate('/seller');
       else navigate('/buyer');
@@ -118,33 +116,51 @@ export const PortalLandingPage: React.FC = () => {
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    const cleanMobile = regMobile.replace(/\D/g, '').slice(-10);
+    if (!/^\d{10}$/.test(cleanMobile)) {
+      setErrorMessage('Mobile number must be exactly 10 digits (e.g., 9876543210).');
+      return;
+    }
+
+    if (regPassword.length < 6) {
+      setErrorMessage('Password must be at least 6 characters.');
+      return;
+    }
+
+    const addressParts = [
+      regAddress.trim(),
+      regCity.trim(),
+      regState.trim(),
+      regPincode.trim(),
+    ].filter(Boolean);
+
+    const combinedAddress = addressParts.length > 0 ? addressParts.join(', ') : undefined;
+
+    setIsSubmitting(true);
+
     const payload: RegisterRequestDto = {
       name: regName.trim(),
-      email: regEmail.trim(),
+      email: regEmail.trim().toLowerCase(),
       password: regPassword,
-      role: activeRole,
-      phone: regPhone.trim(),
+      mobile: cleanMobile,
+      role: activeRole === 'SELLER' ? 'SELLER' : 'BUYER',
       businessName: regBusinessName.trim() || undefined,
-      gstin: regGstin.trim().toUpperCase() || undefined,
-      address: regAddress.trim() || undefined,
-      city: regCity.trim() || undefined,
-      state: regState.trim() || undefined,
-      pincode: regPincode.trim() || undefined,
+      gstNumber: regGstNumber.trim().toUpperCase() || undefined,
+      businessAddress: combinedAddress,
     };
 
     const res = await register(payload);
     setIsSubmitting(false);
 
     if (res.success) {
-      setSuccessMessage('Registration completed successfully! Entering portal...');
+      setSuccessMessage('Registration completed! Redirecting to your portal...');
       setTimeout(() => {
         if (activeRole === 'SELLER') navigate('/seller');
         else navigate('/buyer');
-      }, 1000);
+      }, 600);
     } else {
       setErrorMessage(res.message || 'Registration failed. Please check the details.');
     }
@@ -175,16 +191,18 @@ export const PortalLandingPage: React.FC = () => {
                   <div className="text-indigo-400 uppercase font-mono text-[10px]">{user.role}</div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => {
                     if (user.role === 'ADMIN') navigate('/admin');
                     else if (user.role === 'SELLER') navigate('/seller');
                     else navigate('/buyer');
                   }}
-                  className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded-lg font-medium transition"
+                  className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg font-medium transition"
                 >
                   Enter Portal
                 </button>
                 <button
+                  type="button"
                   onClick={logout}
                   className="text-xs text-slate-400 hover:text-rose-400 transition ml-1"
                 >
@@ -197,7 +215,7 @@ export const PortalLandingPage: React.FC = () => {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                Spring Boot API @ :8080 Active
+                Spring Boot API Connected
               </div>
             )}
           </div>
@@ -206,12 +224,11 @@ export const PortalLandingPage: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex flex-col lg:flex-row items-center gap-12">
-        
         {/* Left Column: B2B Platform Hero & Capabilities */}
         <div className="flex-1 space-y-6">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-950/60 border border-indigo-800/60 text-indigo-300 text-xs font-semibold">
             <Sparkles className="w-4 h-4 text-indigo-400" />
-            Unified Enterprise Wholesale Platform
+            Unified Enterprise Garments & Undergarments B2B Marketplace
           </div>
 
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
@@ -222,17 +239,16 @@ export const PortalLandingPage: React.FC = () => {
           </h1>
 
           <p className="text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
-            Connecting Wholesalers, Manufacturers, and Retail Buyers in one unified portal. 
+            Connecting Wholesalers, Manufacturers, and Retail Buyers in one unified platform.
             Automated GST invoices, MOQ pack multipliers, real-time variant inventory, and credit ledgers.
           </p>
 
-          {/* 3 Portal Highlights */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-            <div 
+            <div
               onClick={() => handleRoleChange('BUYER')}
               className={`p-4 rounded-2xl border cursor-pointer transition ${
-                activeRole === 'BUYER' 
-                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200 ring-2 ring-emerald-500/20' 
+                activeRole === 'BUYER'
+                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200 ring-2 ring-emerald-500/20'
                   : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
               }`}
             >
@@ -241,24 +257,24 @@ export const PortalLandingPage: React.FC = () => {
               <p className="text-xs text-slate-400 mt-1">Multi-seller cart, MOQ pack pricing & instant checkout.</p>
             </div>
 
-            <div 
+            <div
               onClick={() => handleRoleChange('SELLER')}
               className={`p-4 rounded-2xl border cursor-pointer transition ${
-                activeRole === 'SELLER' 
-                  ? 'bg-blue-950/40 border-blue-500/50 text-blue-200 ring-2 ring-blue-500/20' 
+                activeRole === 'SELLER'
+                  ? 'bg-blue-950/40 border-blue-500/50 text-blue-200 ring-2 ring-blue-500/20'
                   : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
               }`}
             >
               <Store className="w-6 h-6 mb-2 text-blue-400" />
               <h3 className="font-semibold text-sm">Merchant Seller</h3>
-              <p className="text-xs text-slate-400 mt-1">Catalog CRUD, order discounts, payments & return notes.</p>
+              <p className="text-xs text-slate-400 mt-1">Catalog CRUD, order discounts, POS, purchases & returns.</p>
             </div>
 
-            <div 
+            <div
               onClick={() => handleRoleChange('ADMIN')}
               className={`p-4 rounded-2xl border cursor-pointer transition ${
-                activeRole === 'ADMIN' 
-                  ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-200 ring-2 ring-indigo-500/20' 
+                activeRole === 'ADMIN'
+                  ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-200 ring-2 ring-indigo-500/20'
                   : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
               }`}
             >
@@ -269,15 +285,20 @@ export const PortalLandingPage: React.FC = () => {
           </div>
 
           <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center gap-6 text-xs text-slate-400">
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> GST Tax Compliant</span>
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Pack Size Multiplier Logic</span>
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Real-time Double-Entry Ledgers</span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> GST Tax Compliant
+            </span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Pack Size Multiplier Logic
+            </span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Real-time Double-Entry Ledgers
+            </span>
           </div>
         </div>
 
         {/* Right Column: Dynamic Authentication Card */}
         <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-indigo-950/50 backdrop-blur-xl relative">
-          
           {/* Portal Switcher Tabs */}
           <div className="flex bg-slate-950 p-1 rounded-2xl border border-slate-800 mb-6">
             <button
@@ -315,7 +336,6 @@ export const PortalLandingPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Sub Header for current portal */}
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -324,34 +344,38 @@ export const PortalLandingPage: React.FC = () => {
                 {activeRole === 'BUYER' && (authMode === 'LOGIN' ? 'Wholesale Buyer Login' : 'Register Buyer Account')}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                {activeRole === 'ADMIN' && 'Authorized personnel only. Logs into /admin'}
+                {activeRole === 'ADMIN' && 'Default Admin: admin@retailflow.com'}
                 {activeRole === 'SELLER' && 'Manage catalog, wholesale orders, and ERP'}
                 {activeRole === 'BUYER' && 'Browse catalogs, MOQ packs, and place orders'}
               </p>
             </div>
 
-            {/* Fill demo credentials button */}
             {authMode === 'LOGIN' && (
               <button
                 type="button"
                 onClick={() => handleFillDemo(activeRole)}
                 className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-950/60 border border-indigo-800/80 px-2.5 py-1 rounded-lg transition"
-                title="Fill sample demo credentials"
+                title="Fill default credentials"
               >
-                Auto-fill Demo
+                Auto-fill
               </button>
             )}
           </div>
 
-          {/* Toggle between Login and Register for Buyer/Seller */}
           {activeRole !== 'ADMIN' && (
             <div className="flex border-b border-slate-800 mb-6">
               <button
                 type="button"
-                onClick={() => { setAuthMode('LOGIN'); setErrorMessage(null); setSuccessMessage(null); }}
+                onClick={() => {
+                  setAuthMode('LOGIN');
+                  setErrorMessage(null);
+                  setSuccessMessage(null);
+                }}
                 className={`flex-1 pb-2.5 text-xs font-semibold border-b-2 transition ${
                   authMode === 'LOGIN'
-                    ? activeRole === 'SELLER' ? 'border-blue-500 text-blue-400' : 'border-emerald-500 text-emerald-400'
+                    ? activeRole === 'SELLER'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-emerald-500 text-emerald-400'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -359,10 +383,16 @@ export const PortalLandingPage: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => { setAuthMode('REGISTER'); setErrorMessage(null); setSuccessMessage(null); }}
+                onClick={() => {
+                  setAuthMode('REGISTER');
+                  setErrorMessage(null);
+                  setSuccessMessage(null);
+                }}
                 className={`flex-1 pb-2.5 text-xs font-semibold border-b-2 transition ${
                   authMode === 'REGISTER'
-                    ? activeRole === 'SELLER' ? 'border-blue-500 text-blue-400' : 'border-emerald-500 text-emerald-400'
+                    ? activeRole === 'SELLER'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-emerald-500 text-emerald-400'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -371,7 +401,6 @@ export const PortalLandingPage: React.FC = () => {
             </div>
           )}
 
-          {/* Feedback Alerts */}
           {errorMessage && (
             <div className="mb-4 p-3 rounded-xl bg-rose-950/50 border border-rose-800/80 text-rose-300 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
@@ -385,7 +414,6 @@ export const PortalLandingPage: React.FC = () => {
             </div>
           )}
 
-          {/* LOGIN FORM */}
           {authMode === 'LOGIN' ? (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
@@ -398,8 +426,11 @@ export const PortalLandingPage: React.FC = () => {
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     placeholder={
-                      activeRole === 'ADMIN' ? 'admin@flowmart.com' :
-                      activeRole === 'SELLER' ? 'seller@flowmart.com' : 'buyer@flowmart.com'
+                      activeRole === 'ADMIN'
+                        ? 'admin@retailflow.com'
+                        : activeRole === 'SELLER'
+                        ? 'seller@flowmart.com'
+                        : 'buyer@flowmart.com'
                     }
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
                   />
@@ -442,7 +473,6 @@ export const PortalLandingPage: React.FC = () => {
               </button>
             </form>
           ) : (
-            /* REGISTRATION FORM (BUYER & SELLER) */
             <form onSubmit={handleRegisterSubmit} className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Full Name *</label>
@@ -472,10 +502,11 @@ export const PortalLandingPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Password *</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Password (min 6) *</label>
                   <input
                     type="password"
                     required
+                    minLength={6}
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     placeholder="••••••••"
@@ -486,15 +517,20 @@ export const PortalLandingPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Mobile / Phone *</label>
-                  <input
-                    type="text"
-                    required
-                    value={regPhone}
-                    onChange={(e) => setRegPhone(e.target.value)}
-                    placeholder="+91 9876543210"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                  />
+                  <label className="block text-xs font-medium text-slate-300 mb-1">10-Digit Mobile *</label>
+                  <div className="relative">
+                    <Phone className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+                    <input
+                      type="tel"
+                      required
+                      maxLength={10}
+                      pattern="\d{10}"
+                      value={regMobile}
+                      onChange={(e) => setRegMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      placeholder="9876543210"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">Business Name</label>
@@ -502,7 +538,7 @@ export const PortalLandingPage: React.FC = () => {
                     type="text"
                     value={regBusinessName}
                     onChange={(e) => setRegBusinessName(e.target.value)}
-                    placeholder="Kumar Retailers Ltd"
+                    placeholder="Kumar Garments"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -517,9 +553,9 @@ export const PortalLandingPage: React.FC = () => {
                   <input
                     type="text"
                     required={activeRole === 'SELLER'}
-                    value={regGstin}
-                    onChange={(e) => setRegGstin(e.target.value.toUpperCase())}
-                    placeholder="27AABCU9603R1ZM"
+                    value={regGstNumber}
+                    onChange={(e) => setRegGstNumber(e.target.value.toUpperCase())}
+                    placeholder="09AAACH7409R1ZP"
                     maxLength={15}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                   />
@@ -527,14 +563,14 @@ export const PortalLandingPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Billing & Delivery Address</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Billing & Delivery Street Address</label>
                 <div className="relative">
                   <MapPin className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                   <input
                     type="text"
                     value={regAddress}
                     onChange={(e) => setRegAddress(e.target.value)}
-                    placeholder="Plot 42, Market Road"
+                    placeholder="Plot 42, Wholesale Textile Market"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -547,7 +583,7 @@ export const PortalLandingPage: React.FC = () => {
                     type="text"
                     value={regCity}
                     onChange={(e) => setRegCity(e.target.value)}
-                    placeholder="Mumbai"
+                    placeholder="Kanpur"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
                   />
                 </div>
@@ -557,7 +593,7 @@ export const PortalLandingPage: React.FC = () => {
                     type="text"
                     value={regState}
                     onChange={(e) => setRegState(e.target.value)}
-                    placeholder="MH"
+                    placeholder="UP"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
                   />
                 </div>
@@ -566,8 +602,8 @@ export const PortalLandingPage: React.FC = () => {
                   <input
                     type="text"
                     value={regPincode}
-                    onChange={(e) => setRegPincode(e.target.value)}
-                    placeholder="400001"
+                    onChange={(e) => setRegPincode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="208001"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
                   />
                 </div>
@@ -590,17 +626,7 @@ export const PortalLandingPage: React.FC = () => {
               </button>
             </form>
           )}
-
-          {/* Quick Disclaimer / Note */}
-          <div className="mt-6 pt-4 border-t border-slate-800/80 text-center">
-            <p className="text-[11px] text-slate-500">
-              FlowMart B2B Web connects to Spring Boot backend at{' '}
-              <code className="text-slate-400 font-mono">http://localhost:8080/api/v1</code>
-            </p>
-          </div>
-
         </div>
-
       </main>
 
       {/* Footer */}
@@ -608,9 +634,9 @@ export const PortalLandingPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© {new Date().getFullYear()} FlowMart B2B Retail & Wholesale ERP System. All rights reserved.</p>
           <div className="flex items-center gap-6 text-slate-400">
-            <span className="hover:text-white cursor-pointer transition">GST Compliance</span>
-            <span className="hover:text-white cursor-pointer transition">API Docs</span>
-            <span className="hover:text-white cursor-pointer transition">Security</span>
+            <span>GST Rule 46 Compliant</span>
+            <span>MOQ Pack Multiplier</span>
+            <span>Multi-Seller Checkout</span>
           </div>
         </div>
       </footer>
@@ -619,4 +645,3 @@ export const PortalLandingPage: React.FC = () => {
 };
 
 export default PortalLandingPage;
-
