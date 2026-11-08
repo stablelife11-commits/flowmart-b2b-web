@@ -551,6 +551,9 @@ export const SellerPortal: React.FC = () => {
   const handleQuickAddSizes = (sizesToAdd: string[], defaultColor: string = 'White') => {
     setProdVariants((prev) => {
       const template = prev[0] || {
+        sku: '',
+        size: '',
+        color: defaultColor,
         sellingPrice: 140,
         purchasePrice: 95,
         stock: 100,
