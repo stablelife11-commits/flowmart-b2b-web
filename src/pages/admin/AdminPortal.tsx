@@ -9,6 +9,7 @@ import {
   UserResponseDto,
 } from '../../types/api';
 import GstInvoiceModal from '../../components/GstInvoiceModal';
+import AdminNotificationSender from '../../components/admin/AdminNotificationSender';
 import {
   ShieldCheck,
   Users,
@@ -19,16 +20,22 @@ import {
   Store,
   CheckCircle2,
   AlertCircle,
+  Bell,
+  X,
 } from 'lucide-react';
 
 export const AdminPortal: React.FC = () => {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'USERS' | 'ORDERS'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'USERS' | 'ORDERS' | 'NOTIFICATIONS'>('OVERVIEW');
 
   const [summary, setSummary] = useState<DashboardSummaryDto | null>(null);
   const [users, setUsers] = useState<UserResponseDto[]>([]);
   const [orders, setOrders] = useState<OrderResponseDto[]>([]);
   const [invoiceOrder, setInvoiceOrder] = useState<OrderResponseDto | null>(null);
+
+  // Step 3 State: किसी खास Order के लिए Notify Modal खोलने का स्टेट
+  const [selectedOrderForNotif, setSelectedOrderForNotif] = useState<OrderResponseDto | null>(null);
+
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const showToast = (type: 'success' | 'error', text: string) => {
@@ -124,6 +131,15 @@ export const AdminPortal: React.FC = () => {
             >
               <ClipboardList className="w-3.5 h-3.5" /> All Orders ({orders.length})
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('NOTIFICATIONS')}
+              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1 ${
+                activeTab === 'NOTIFICATIONS' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5" /> Notify Buyers
+            </button>
             <Link
               to="/seller"
               className="px-3 py-2 rounded-xl text-xs font-semibold bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600 hover:text-white flex items-center gap-1 transition"
@@ -194,6 +210,11 @@ export const AdminPortal: React.FC = () => {
                   {users.length} Users / {summary?.totalProducts || 0} SKUs
                 </div>
               </div>
+            </div>
+
+            {/* Overview पेज पर भी सीधा Notification बॉक्स */}
+            <div className="max-w-2xl">
+              <AdminNotificationSender />
             </div>
           </div>
         )}
@@ -282,17 +303,27 @@ export const AdminPortal: React.FC = () => {
                     <strong>{o.customerName}</strong>
                   </span>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   <span className="font-mono font-bold">
                     ₹{Number(o.totalAmount).toLocaleString('en-IN')}
                   </span>
                   <span className="px-2 py-0.5 bg-slate-900 text-white rounded-full font-bold">
                     {o.status}
                   </span>
+
+                  {/* Step 3: हर Order के आगे Notify Buyer बटन */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOrderForNotif(o)}
+                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-semibold flex items-center gap-1 transition"
+                  >
+                    <Bell className="w-3.5 h-3.5 text-amber-600" /> Notify Buyer
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setInvoiceOrder(o)}
-                    className="px-3 py-1 bg-indigo-600 text-white rounded-lg font-semibold flex items-center gap-1"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold flex items-center gap-1 transition"
                   >
                     <FileText className="w-3.5 h-3.5" /> GST Invoice
                   </button>
@@ -301,7 +332,40 @@ export const AdminPortal: React.FC = () => {
             ))}
           </div>
         )}
+
+        {activeTab === 'NOTIFICATIONS' && (
+          <div className="max-w-2xl mx-auto">
+            <AdminNotificationSender />
+          </div>
+        )}
       </main>
+
+      {/* Step 3 Modal: जब किसी Order के "Notify Buyer" बटन पर क्लिक हो */}
+      {selectedOrderForNotif && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="relative w-full max-w-xl">
+            <button
+              type="button"
+              onClick={() => setSelectedOrderForNotif(null)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <AdminNotificationSender
+              defaultOrderId={selectedOrderForNotif.id}
+              defaultBuyerName={selectedOrderForNotif.customerName}
+              onSuccess={() => {
+                showToast(
+                  'success',
+                  `Order #${selectedOrderForNotif.id} (${selectedOrderForNotif.customerName}) को नोटिफिकेशन भेज दिया गया!`
+                );
+                setTimeout(() => setSelectedOrderForNotif(null), 1200);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <GstInvoiceModal
         order={invoiceOrder}
