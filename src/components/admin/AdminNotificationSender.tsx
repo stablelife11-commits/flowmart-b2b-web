@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axiosClient, { extractErrorMessage } from '../../api/axiosClient';
+import { CustomerDto } from '../../types/api';
 import { Bell, Send, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface AdminNotificationSenderProps {
   defaultOrderId?: number;
+  defaultCustomerId?: number;
   defaultBuyerName?: string;
   onSuccess?: () => void;
 }
@@ -12,28 +14,52 @@ type TargetMode = 'ALL' | 'ORDER' | 'CUSTOMER';
 
 export const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = ({
   defaultOrderId,
+  defaultCustomerId,
   defaultBuyerName,
   onSuccess,
 }) => {
-  const [targetMode, setTargetMode] = useState<TargetMode>(defaultOrderId ? 'ORDER' : 'ALL');
+  const [targetMode, setTargetMode] = useState<TargetMode>(
+    defaultOrderId ? 'ORDER' : defaultCustomerId ? 'CUSTOMER' : 'ALL'
+  );
   const [orderId, setOrderId] = useState<string>(defaultOrderId ? String(defaultOrderId) : '');
-  const [customerId, setCustomerId] = useState<string>('');
+  const [customerId, setCustomerId] = useState<string>(
+    defaultCustomerId ? String(defaultCustomerId) : ''
+  );
+  const [customers, setCustomers] = useState<CustomerDto[]>([]);
   const [title, setTitle] = useState<string>('');
   const [message, setMessage] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // बैकएंड से सभी रजिस्टर्ड दुकानदारों (Customers) की लिस्ट लोड करें
+  useEffect(() => {
+    axiosClient
+      .get<CustomerDto[]>('/customers')
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          setCustomers(res.data);
+        }
+      })
+      .catch(() => {
+        // ignore if failed
+      });
+  }, []);
 
   useEffect(() => {
     if (defaultOrderId) {
       setTargetMode('ORDER');
       setOrderId(String(defaultOrderId));
       setTitle(`Order #${defaultOrderId} अपडेट 🔔`);
+    } else if (defaultCustomerId) {
+      setTargetMode('CUSTOMER');
+      setCustomerId(String(defaultCustomerId));
+      setTitle(`विशेष सूचना — ${defaultBuyerName || 'FlowMart'} 🔔`);
     }
-  }, [defaultOrderId]);
+  }, [defaultOrderId, defaultCustomerId, defaultBuyerName]);
 
   // 1-Click रेडीमेड टेम्पलेट्स
   const applyTemplate = (tplType: 'DISPATCH' | 'PACKING' | 'OFFER') => {
-    const ordText = orderId ? `#${orderId}` : '';
+    const ordText = targetMode === 'ORDER' && orderId ? `#${orderId}` : '';
     if (tplType === 'PACKING') {
       setTitle(`Order ${ordText} पैकिंग शुरू 📦`);
       setMessage(
@@ -67,7 +93,7 @@ export const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = (
     }
 
     if (targetMode === 'CUSTOMER' && !customerId.trim()) {
-      setStatusMsg({ type: 'error', text: 'कृपया Customer ID दर्ज करें।' });
+      setStatusMsg({ type: 'error', text: 'कृपया ड्रॉपडाउन से ग्राहक चुनें या Customer ID डालें।' });
       return;
     }
 
@@ -108,12 +134,14 @@ export const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = (
             <Bell className="w-5 h-5 text-indigo-600" />
             {defaultOrderId
               ? `Order #${defaultOrderId} के ग्राहक को नोटिफिकेशन भेजें`
+              : defaultCustomerId
+              ? `${defaultBuyerName || `Customer #${defaultCustomerId}`} को नोटिफिकेशन भेजें`
               : 'कस्टमर ऐप नोटिफिकेशन सेंटर (Admin)'}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             {defaultBuyerName
               ? `ग्राहक: ${defaultBuyerName}`
-              : 'किसी खास ऑर्डर के ग्राहक को या सभी दुकानदारों के मोबाइल ऐप पर सीधा अलर्ट भेजें।'}
+              : 'किसी खास ऑर्डर, किसी एक दुकानदार या सभी दुकानदारों के मोबाइल ऐप पर सीधा अलर्ट भेजें।'}
           </p>
         </div>
       </div>
@@ -151,7 +179,7 @@ export const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = (
               : 'text-slate-600 hover:bg-slate-200'
           }`}
         >
-          👤 एक ग्राहक (Customer ID)
+          👤 एक ग्राहक (Customer)
         </button>
       </div>
 
@@ -195,23 +223,37 @@ export const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = (
               type="number"
               value={orderId}
               onChange={(e) => setOrderId(e.target.value)}
-              placeholder="उदा: 15"
+              placeholder="उदा: 180001"
               className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
             />
           </div>
         )}
 
         {targetMode === 'CUSTOMER' && (
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Customer ID (ग्राहक आईडी) *
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-700">
+              दुकानदार / ग्राहक चुनें (Select Buyer) *
             </label>
+            {customers.length > 0 && (
+              <select
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              >
+                <option value="">-- लिस्ट से ग्राहक चुनें --</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} — (Customer ID: #{c.id} • 📞 {c.mobile})
+                  </option>
+                ))}
+              </select>
+            )}
             <input
               type="number"
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
-              placeholder="उदा: 4"
-              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              placeholder="या सीधे Customer ID / User ID नंबर डालें (उदा: 1)"
+              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-600"
             />
           </div>
         )}
@@ -224,7 +266,7 @@ export const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = (
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="उदा: Order #15 डिस्पैच अपडेट 🚚"
+            placeholder="उदा: Order #180001 डिस्पैच अपडेट 🚚"
             className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
           />
         </div>

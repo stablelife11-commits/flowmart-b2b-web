@@ -33,8 +33,12 @@ export const AdminPortal: React.FC = () => {
   const [orders, setOrders] = useState<OrderResponseDto[]>([]);
   const [invoiceOrder, setInvoiceOrder] = useState<OrderResponseDto | null>(null);
 
-  // Step 3 State: किसी खास Order के लिए Notify Modal खोलने का स्टेट
-  const [selectedOrderForNotif, setSelectedOrderForNotif] = useState<OrderResponseDto | null>(null);
+  // Order या Customer पर सीधे Notify पॉपअप खोलने के लिए
+  const [notifModalTarget, setNotifModalTarget] = useState<{
+    orderId?: number;
+    customerId?: number;
+    buyerName?: string;
+  } | null>(null);
 
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -212,7 +216,6 @@ export const AdminPortal: React.FC = () => {
               </div>
             </div>
 
-            {/* Overview पेज पर भी सीधा Notification बॉक्स */}
             <div className="max-w-2xl">
               <AdminNotificationSender />
             </div>
@@ -226,9 +229,9 @@ export const AdminPortal: React.FC = () => {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-400 uppercase text-[10px]">
-                    <th className="py-2">ID</th>
+                    <th className="py-2">User ID</th>
                     <th className="py-2">Name & Email</th>
-                    <th className="py-2">Business & GSTIN</th>
+                    <th className="py-2">Business & Phone</th>
                     <th className="py-2">Role</th>
                     <th className="py-2">Status</th>
                     <th className="py-2 text-right">Actions</th>
@@ -237,14 +240,14 @@ export const AdminPortal: React.FC = () => {
                 <tbody className="divide-y divide-slate-100">
                   {users.map((u) => (
                     <tr key={u.id}>
-                      <td className="py-3 font-mono">#{u.id}</td>
+                      <td className="py-3 font-mono font-bold text-indigo-600">#{u.id}</td>
                       <td className="py-3">
                         <div className="font-bold text-slate-900">{u.name}</div>
                         <div className="text-slate-500">{u.email}</div>
                       </td>
                       <td className="py-3">
                         <div>{u.businessName || '-'}</div>
-                        <div className="font-mono text-slate-500">{u.gstNumber || ''}</div>
+                        <div className="font-mono text-slate-500">{u.businessPhone || u.gstNumber || ''}</div>
                       </td>
                       <td className="py-3">
                         <select
@@ -270,15 +273,31 @@ export const AdminPortal: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 text-right">
-                        {u.email !== user?.email && (
-                          <button
-                            type="button"
-                            onClick={() => handleStatusToggle(u)}
-                            className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold"
-                          >
-                            {u.active ? 'Suspend' : 'Activate'}
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          {u.role === 'BUYER' && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setNotifModalTarget({
+                                  customerId: u.id,
+                                  buyerName: u.name,
+                                })
+                              }
+                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-semibold flex items-center gap-1"
+                            >
+                              <Bell className="w-3 h-3 text-amber-600" /> Notify
+                            </button>
+                          )}
+                          {u.email !== user?.email && (
+                            <button
+                              type="button"
+                              onClick={() => handleStatusToggle(u)}
+                              className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold"
+                            >
+                              {u.active ? 'Suspend' : 'Activate'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -300,7 +319,10 @@ export const AdminPortal: React.FC = () => {
                   <span className="font-mono font-bold text-slate-900">Order #{o.id}</span>
                   <span className="ml-2 text-slate-600">
                     Seller: <strong>{o.sellerBusinessName}</strong> (#{o.sellerId}) → Buyer:{' '}
-                    <strong>{o.customerName}</strong>
+                    <strong>{o.customerName}</strong>{' '}
+                    <span className="font-mono text-indigo-600 font-semibold">
+                      (Customer ID: #{o.customerId})
+                    </span>
                   </span>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
@@ -311,10 +333,14 @@ export const AdminPortal: React.FC = () => {
                     {o.status}
                   </span>
 
-                  {/* Step 3: हर Order के आगे Notify Buyer बटन */}
                   <button
                     type="button"
-                    onClick={() => setSelectedOrderForNotif(o)}
+                    onClick={() =>
+                      setNotifModalTarget({
+                        orderId: o.id,
+                        buyerName: `${o.customerName} (Customer #${o.customerId})`,
+                      })
+                    }
                     className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-semibold flex items-center gap-1 transition"
                   >
                     <Bell className="w-3.5 h-3.5 text-amber-600" /> Notify Buyer
@@ -340,27 +366,28 @@ export const AdminPortal: React.FC = () => {
         )}
       </main>
 
-      {/* Step 3 Modal: जब किसी Order के "Notify Buyer" बटन पर क्लिक हो */}
-      {selectedOrderForNotif && (
+      {/* Modal: जब किसी Order या User के "Notify" बटन पर क्लिक हो */}
+      {notifModalTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="relative w-full max-w-xl">
             <button
               type="button"
-              onClick={() => setSelectedOrderForNotif(null)}
+              onClick={() => setNotifModalTarget(null)}
               className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
               title="Close"
             >
               <X className="w-5 h-5" />
             </button>
             <AdminNotificationSender
-              defaultOrderId={selectedOrderForNotif.id}
-              defaultBuyerName={selectedOrderForNotif.customerName}
+              defaultOrderId={notifModalTarget.orderId}
+              defaultCustomerId={notifModalTarget.customerId}
+              defaultBuyerName={notifModalTarget.buyerName}
               onSuccess={() => {
                 showToast(
                   'success',
-                  `Order #${selectedOrderForNotif.id} (${selectedOrderForNotif.customerName}) को नोटिफिकेशन भेज दिया गया!`
+                  `ग्राहक (${notifModalTarget.buyerName || ''}) को नोटिफिकेशन भेज दिया गया!`
                 );
-                setTimeout(() => setSelectedOrderForNotif(null), 1200);
+                setTimeout(() => setNotifModalTarget(null), 1200);
               }}
             />
           </div>
