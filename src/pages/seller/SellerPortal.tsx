@@ -132,6 +132,7 @@ function generateSmartVariantSku(
 
 export const SellerPortal: React.FC = () => {
   const { user, logout, saveProfileToBackend } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [activeTab, setActiveTab] = useState<SellerTab>('DASHBOARD');
 
   const [summary, setSummary] = useState<DashboardSummaryDto | null>(null);
@@ -154,7 +155,7 @@ export const SellerPortal: React.FC = () => {
     setTimeout(() => setToast(null), 4500);
   };
 
-  // Product Filter & Search State (Matches ProductsFragment.java)
+  // Product Filter & Search State
   const [prodSearch, setProdSearch] = useState('');
   const [prodChipFilter, setProdChipFilter] = useState<
     'ALL' | 'ACTIVE' | 'INACTIVE' | 'MEN' | 'WOMEN' | 'KIDS'
@@ -178,16 +179,16 @@ export const SellerPortal: React.FC = () => {
   const [isManualProdCode, setIsManualProdCode] = useState<boolean>(false);
   const [manualSkuLocks, setManualSkuLocks] = useState<Record<number, boolean>>({});
 
-  // Batch Stock Update Modal (Matches UpdateStockBottomSheet.java)
+  // Batch Stock Update Modal
   const [batchStockProduct, setBatchStockProduct] = useState<ProductResponseDto | null>(null);
   const [batchStockMap, setBatchStockMap] = useState<Record<number, number>>({});
   const [isSavingBatchStock, setIsSavingBatchStock] = useState(false);
 
-  // Order Search & Status Filter State (Matches SalesFragment.java)
+  // Order Search & Status Filter State
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'ALL' | OrderStatus>('ALL');
 
-  // Order Negotiation / Modify Modal State (Matches SaleAdapter.java)
+  // Order Negotiation / Modify Modal State
   const [modifyingOrder, setModifyingOrder] = useState<OrderResponseDto | null>(null);
   const [modDiscount, setModDiscount] = useState<number>(0);
   const [modRemarks, setModRemarks] = useState<string>('');
@@ -203,18 +204,18 @@ export const SellerPortal: React.FC = () => {
     }[]
   >([]);
 
-  // Order Quick Payment Modal (Matches SaleAdapter.showRecordPaymentDialog)
+  // Order Quick Payment Modal
   const [paymentModalOrder, setPaymentModalOrder] = useState<OrderResponseDto | null>(null);
   const [orderPayAmount, setOrderPayAmount] = useState<string>('');
   const [orderPayMethod, setOrderPayMethod] = useState<string>('UPI');
   const [orderPayNotes, setOrderPayNotes] = useState<string>('');
 
-  // Multi-Item Order Return Modal (Matches ReturnProcessActivity.java)
+  // Multi-Item Order Return Modal
   const [returnModalOrder, setReturnModalOrder] = useState<OrderResponseDto | null>(null);
   const [orderReturnQtys, setOrderReturnQtys] = useState<Record<number, number>>({});
   const [orderReturnReason, setOrderReturnReason] = useState<string>('Defective / Size Exchange');
 
-  // Inventory Tab Filter State (Matches InventoryFragment.java)
+  // Inventory Tab Filter State
   const [invSearch, setInvSearch] = useState('');
   const [invFilter, setInvFilter] = useState<'ALL' | 'AVAILABLE' | 'LOW' | 'OUT' | 'HISTORY'>('ALL');
 
@@ -295,10 +296,13 @@ export const SellerPortal: React.FC = () => {
         invRes,
       ] = await Promise.all([
         axiosClient.get<DashboardSummaryDto>('/reports/dashboard-summary'),
-        axiosClient.get<ProductResponseDto[]>('/products/my-products', {
-          params: { page: 0, size: 100 },
-        }),
-        user.role === 'ADMIN'
+        // ✅ FIX 1: Admin ko sabhi sellers ke products dikhenge
+        isAdmin
+          ? axiosClient.get<ProductResponseDto[]>('/products', { params: { page: 0, size: 100 } })
+          : axiosClient.get<ProductResponseDto[]>('/products/my-products', {
+              params: { page: 0, size: 100 },
+            }),
+        isAdmin
           ? axiosClient.get<OrderResponseDto[]>('/orders', { params: { page: 0, size: 100 } })
           : axiosClient.get<OrderResponseDto[]>(`/orders/seller/${user.id}`, {
               params: { page: 0, size: 100 },
@@ -317,7 +321,9 @@ export const SellerPortal: React.FC = () => {
 
       setSummary(sumRes.data);
       setProducts(prodRes.data || []);
-      setOrders(ordRes.data || []);
+      // ✅ FIX 3: Seller ko PLACED (unapproved) orders nahi dikhenge jab tak Admin CONFIRMED na kare
+      const rawOrders = ordRes.data || [];
+      setOrders(isAdmin ? rawOrders : rawOrders.filter((o) => o.status !== 'PLACED'));
       setSales(salRes.data || []);
       setPurchases(purRes.data || []);
       setReturns(retRes.data || []);
@@ -329,14 +335,14 @@ export const SellerPortal: React.FC = () => {
     } catch (err) {
       showToast('error', extractErrorMessage(err));
     }
-  }, [user?.id, user?.role]);
+  }, [user?.id, isAdmin]);
 
   useEffect(() => {
     loadAllSellerData();
   }, [loadAllSellerData]);
 
   // ============================================================================
-  // DASHBOARD ANALYTICS (Matches DashboardFragment.java in Seller Android App)
+  // DASHBOARD ANALYTICS
   // ============================================================================
   const dashboardAnalytics = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -348,7 +354,6 @@ export const SellerPortal: React.FC = () => {
     let pendingOrdersCount = 0;
     let deliveredOrdersCount = 0;
 
-    // Last 7 days map
     const last7Days: { date: string; label: string; revenue: number }[] = [];
     const dayMap: Record<string, number> = {};
     for (let i = 6; i >= 0; i--) {
@@ -366,7 +371,7 @@ export const SellerPortal: React.FC = () => {
     for (const o of orders) {
       const st = (o.status || 'PLACED').toUpperCase();
       const isCancelled = st === 'CANCELLED' || st === 'REJECTED';
-      if (st === 'PLACED') pendingOrdersCount++;
+      if (st === 'PLACED' || st === 'CONFIRMED') pendingOrdersCount++;
       if (st === 'DELIVERED') deliveredOrdersCount++;
 
       const dateStr = (o.orderDate || o.createdAt || '').slice(0, 10);
@@ -403,7 +408,6 @@ export const SellerPortal: React.FC = () => {
       .sort((a, b) => b.unitsSold - a.unitsSold)
       .slice(0, 4);
 
-    // Product & Low Stock stats
     let activeProductsCount = 0;
     let totalUnits = 0;
     let lowStockCount = 0;
@@ -519,7 +523,7 @@ export const SellerPortal: React.FC = () => {
     setProdDesc(p.description || '');
     setProdCategory(p.category || '');
     setProdBrand(p.brand || '');
-    setIsManualProdCode(true); // Preserve existing product style code during edit
+    setIsManualProdCode(true);
 
     const existingImgs = getProductImageUrls(p);
     setUploadedImages(existingImgs);
@@ -527,7 +531,7 @@ export const SellerPortal: React.FC = () => {
 
     const existingLocks: Record<number, boolean> = {};
     const mappedVariants = (p.variants || []).map((v, idx) => {
-      existingLocks[idx] = true; // Lock existing saved SKUs by default so they don't change accidentally
+      existingLocks[idx] = true;
       return {
         id: v.id,
         sku: v.sku,
@@ -584,7 +588,6 @@ export const SellerPortal: React.FC = () => {
           };
         });
 
-      // Replace first row if it was an empty placeholder
       if (prev.length === 1 && !prev[0].size && !prev[0].id) {
         return newRows.length > 0 ? newRows : prev;
       }
@@ -675,8 +678,9 @@ export const SellerPortal: React.FC = () => {
         ? prodCode.trim().toUpperCase()
         : generateSmartProductCode(prodBrand, prodCategory, prodName);
 
+    // ✅ FIX 1: Preserve original sellerId when Admin edits a seller's product
     const payload = {
-      sellerId: user.id,
+      sellerId: editingProduct ? editingProduct.sellerId : user.id,
       productCode: resolvedProdCode,
       name: prodName.trim(),
       description: prodDesc.trim() || undefined,
@@ -747,7 +751,6 @@ export const SellerPortal: React.FC = () => {
     }
   };
 
-  // Filtered Products (Matches ProductsFragment.java)
   const filteredProducts = useMemo(() => {
     const q = prodSearch.trim().toLowerCase();
     return products.filter((p) => {
@@ -787,7 +790,8 @@ export const SellerPortal: React.FC = () => {
         p.name?.toLowerCase().includes(q) ||
         p.productCode?.toLowerCase().includes(q) ||
         p.category?.toLowerCase().includes(q) ||
-        p.brand?.toLowerCase().includes(q);
+        p.brand?.toLowerCase().includes(q) ||
+        String(p.sellerId).includes(q);
       const matchSku = (p.variants || []).some((v) => v.sku?.toLowerCase().includes(q));
       return matchHeader || matchSku;
     });
@@ -799,19 +803,20 @@ export const SellerPortal: React.FC = () => {
   const filteredOrders = useMemo(() => {
     const q = orderSearch.trim().toLowerCase();
     return orders.filter((o) => {
+      if (!isAdmin && o.status === 'PLACED') return false;
       if (orderStatusFilter !== 'ALL' && o.status !== orderStatusFilter) return false;
       if (!q) return true;
       const matchHeader =
         String(o.id).includes(q) ||
         (o.orderNumber && o.orderNumber.toLowerCase().includes(q)) ||
-        o.customerName?.toLowerCase().includes(q) ||
-        o.customerMobile?.toLowerCase().includes(q);
+        (isAdmin && o.customerName?.toLowerCase().includes(q)) ||
+        (isAdmin && o.customerMobile?.toLowerCase().includes(q));
       const matchItem = (o.items || []).some(
         (i) => i.productName?.toLowerCase().includes(q) || i.sku?.toLowerCase().includes(q)
       );
       return matchHeader || matchItem;
     });
-  }, [orders, orderSearch, orderStatusFilter]);
+  }, [orders, orderSearch, orderStatusFilter, isAdmin]);
 
   const handleOrderStatusChange = async (orderId: number, nextStatus: OrderStatus) => {
     try {
@@ -852,7 +857,7 @@ export const SellerPortal: React.FC = () => {
 
     try {
       await axiosClient.put(`/orders/${modifyingOrder.id}`, {
-        deliveryAddress: modAddress.trim(),
+        deliveryAddress: isAdmin ? modAddress.trim() : undefined,
         discountAmount: Number(modDiscount || 0),
         sellerRemarks: modRemarks.trim() || undefined,
         confirmImmediately,
@@ -865,7 +870,7 @@ export const SellerPortal: React.FC = () => {
       });
       showToast(
         'success',
-        `Order #${modifyingOrder.id} ${confirmImmediately ? 'modified & confirmed' : 'updated'}!`
+        `Order #${modifyingOrder.id} ${confirmImmediately ? 'approved & routed' : 'updated'}!`
       );
       setModifyingOrder(null);
       await loadAllSellerData();
@@ -894,7 +899,7 @@ export const SellerPortal: React.FC = () => {
         paymentMethod: orderPayMethod,
         referenceType: 'ORDER',
         referenceId: paymentModalOrder.id,
-        notes: orderPayNotes.trim() || 'Recorded via Web Seller ERP',
+        notes: orderPayNotes.trim() || 'Recorded via Web ERP',
       });
       showToast('success', `Payment of ₹${orderPayAmount} recorded for Order #${paymentModalOrder.id}!`);
       setPaymentModalOrder(null);
@@ -1105,6 +1110,7 @@ export const SellerPortal: React.FC = () => {
           productId: p.id,
           productName: p.name,
           productCode: p.productCode,
+          sellerId: p.sellerId,
         }))
       ),
     [products]
@@ -1123,6 +1129,10 @@ export const SellerPortal: React.FC = () => {
     });
   }, [allVariants, invSearch, invFilter]);
 
+  const visibleOrderFilterChips: ('ALL' | OrderStatus)[] = isAdmin
+    ? ['ALL', 'PLACED', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
+    : ['ALL', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col lg:flex-row">
       {/* Sidebar */}
@@ -1131,14 +1141,15 @@ export const SellerPortal: React.FC = () => {
           <div className="p-5 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-black text-white shadow">
-                S
+                {isAdmin ? 'A' : 'S'}
               </div>
               <div>
                 <div className="font-bold text-white text-sm leading-tight">
                   {user?.businessName || user?.name || 'Merchant ERP'}
                 </div>
                 <div className="text-[10px] font-mono text-blue-400">
-                  Seller #{user?.id} {user?.gstNumber ? `| ${user.gstNumber}` : ''}
+                  {isAdmin ? `Admin Mode (#${user?.id})` : `Seller #${user?.id}`}{' '}
+                  {user?.gstNumber ? `| ${user.gstNumber}` : ''}
                 </div>
               </div>
             </div>
@@ -1203,11 +1214,10 @@ export const SellerPortal: React.FC = () => {
         )}
 
         {/* ===================================================================
-            TAB 1: EXECUTIVE DASHBOARD (Matches Seller App DashboardFragment)
+            TAB 1: EXECUTIVE DASHBOARD
            =================================================================== */}
         {activeTab === 'DASHBOARD' && (
           <div className="space-y-6">
-            {/* Deep Navy Executive Hero Card */}
             <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg flex flex-col md:flex-row justify-between gap-6">
               <div className="space-y-2">
                 <span className="text-[11px] font-mono uppercase tracking-wider text-blue-400 font-bold">
@@ -1220,8 +1230,8 @@ export const SellerPortal: React.FC = () => {
                   Online Delivered: ₹
                   {Number(summary?.onlineOrderSalesAmount || 0).toLocaleString('en-IN')} • POS Sales: ₹
                   {Number(summary?.posSalesAmount || 0).toLocaleString('en-IN')} • Returns: ₹
-                  {Number(summary?.totalReturnsAmount || 0).toLocaleString('en-IN')} • Buyers:{' '}
-                  {summary?.totalCustomers || 0}
+                  {Number(summary?.totalReturnsAmount || 0).toLocaleString('en-IN')} • Active Products:{' '}
+                  {dashboardAnalytics.activeProductsCount}
                 </p>
               </div>
 
@@ -1252,7 +1262,6 @@ export const SellerPortal: React.FC = () => {
               </div>
             </div>
 
-            {/* 4 KPI Cards Row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
@@ -1262,7 +1271,7 @@ export const SellerPortal: React.FC = () => {
                   ₹{dashboardAnalytics.todaySales.toLocaleString('en-IN')}
                 </div>
                 <div className="text-xs text-emerald-700 mt-1 font-medium">
-                  {dashboardAnalytics.todayOrdersCount} order(s) placed today
+                  {dashboardAnalytics.todayOrdersCount} order(s) today
                 </div>
               </div>
 
@@ -1281,16 +1290,20 @@ export const SellerPortal: React.FC = () => {
 
               <div
                 onClick={() => {
-                  setOrderStatusFilter('PLACED');
+                  setOrderStatusFilter(isAdmin ? 'PLACED' : 'CONFIRMED');
                   setActiveTab('ORDERS');
                 }}
                 className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-amber-400 transition"
               >
-                <div className="text-xs font-bold text-slate-500">Pending Orders (PLACED)</div>
+                <div className="text-xs font-bold text-slate-500">
+                  {isAdmin ? 'Pending Orders (PLACED / CONFIRMED)' : 'Active Confirmed Orders'}
+                </div>
                 <div className="text-2xl font-extrabold text-amber-600 mt-2 font-mono">
                   {dashboardAnalytics.pendingOrdersCount}
                 </div>
-                <div className="text-xs text-amber-700 mt-1">Awaiting confirmation →</div>
+                <div className="text-xs text-amber-700 mt-1">
+                  {isAdmin ? 'Awaiting Admin review →' : 'Ready for dispatch →'}
+                </div>
               </div>
 
               <div
@@ -1310,7 +1323,6 @@ export const SellerPortal: React.FC = () => {
               </div>
             </div>
 
-            {/* 7-Day Sales Trend Bar Chart & Best-Selling Products */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-4">
@@ -1364,7 +1376,6 @@ export const SellerPortal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Best-Selling Products & Low Stock Alerts */}
               <div className="lg:col-span-5 space-y-4">
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-center mb-3">
@@ -1433,14 +1444,16 @@ export const SellerPortal: React.FC = () => {
         )}
 
         {/* ===================================================================
-            TAB 2: CATALOG & STOCK (With Direct Cloudinary Photo Upload)
+            TAB 2: CATALOG & STOCK
            =================================================================== */}
         {activeTab === 'PRODUCTS' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">Wholesale Product Catalog</h2>
+                  <h2 className="text-lg font-bold text-slate-900">
+                    {isAdmin ? 'All Sellers Wholesale Catalog (Admin View)' : 'Wholesale Product Catalog'}
+                  </h2>
                   <p className="text-xs text-slate-500">
                     Showing {filteredProducts.length} of {products.length} product(s) • Smart Auto-SKU & Direct Cloudinary Photo Upload Enabled
                   </p>
@@ -1461,7 +1474,7 @@ export const SellerPortal: React.FC = () => {
                     type="text"
                     value={prodSearch}
                     onChange={(e) => setProdSearch(e.target.value)}
-                    placeholder="Search by product name, style code, category, brand, or variant SKU..."
+                    placeholder="Search by product name, style code, category, brand, Seller ID, or SKU..."
                     className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl"
                   />
                 </div>
@@ -1508,7 +1521,10 @@ export const SellerPortal: React.FC = () => {
                           )}
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[11px] font-bold">
+                              Seller #{p.sellerId}
+                            </span>
                             <span className="text-xs font-mono text-slate-500">
                               Style Code: {p.productCode}
                             </span>
@@ -1518,7 +1534,7 @@ export const SellerPortal: React.FC = () => {
                               </span>
                             )}
                           </div>
-                          <h3 className="text-base font-bold text-slate-900">{p.name}</h3>
+                          <h3 className="text-base font-bold text-slate-900 mt-0.5">{p.name}</h3>
                           <div className="text-xs text-slate-500">
                             Category: {p.category || 'General'} • Brand: {p.brand || 'Generic'}
                           </div>
@@ -1615,14 +1631,16 @@ export const SellerPortal: React.FC = () => {
         )}
 
         {/* ===================================================================
-            TAB 3: B2B ORDERS (With Status Chips, Negotiation, Payment & Return)
+            TAB 3: B2B ORDERS (Buyer Shielding for Sellers + Admin Routing)
            =================================================================== */}
         {activeTab === 'ORDERS' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">Incoming Wholesale B2B Orders</h2>
+                  <h2 className="text-lg font-bold text-slate-900">
+                    {isAdmin ? 'All Marketplace Orders (Admin Control)' : 'Confirmed Wholesale Dispatch Orders'}
+                  </h2>
                   <p className="text-xs text-slate-500">
                     Showing {filteredOrders.length} of {orders.length} order(s)
                   </p>
@@ -1643,22 +1661,16 @@ export const SellerPortal: React.FC = () => {
                     type="text"
                     value={orderSearch}
                     onChange={(e) => setOrderSearch(e.target.value)}
-                    placeholder="Search Order #, buyer name, mobile, product or SKU..."
+                    placeholder={
+                      isAdmin
+                        ? 'Search Order #, buyer name, mobile, product or SKU...'
+                        : 'Search Order #, product name or SKU...'
+                    }
                     className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl"
                   />
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto w-full sm:w-auto">
-                  {(
-                    [
-                      'ALL',
-                      'PLACED',
-                      'CONFIRMED',
-                      'PROCESSING',
-                      'SHIPPED',
-                      'DELIVERED',
-                      'CANCELLED',
-                    ] as const
-                  ).map((st) => (
+                  {visibleOrderFilterChips.map((st) => (
                     <button
                       key={st}
                       type="button"
@@ -1669,7 +1681,7 @@ export const SellerPortal: React.FC = () => {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      {st === 'PLACED' ? 'PENDING (PLACED)' : st}
+                      {st === 'PLACED' ? 'AWAITING ADMIN (PLACED)' : st}
                     </button>
                   ))}
                 </div>
@@ -1677,14 +1689,21 @@ export const SellerPortal: React.FC = () => {
             </div>
 
             {filteredOrders.map((order) => {
-              const allowedNext = NEXT_ORDER_STATUSES[order.status] || [];
+              // ✅ FIX 3: Seller cannot approve PLACED orders; only Admin can transition PLACED -> CONFIRMED
+              const allowedNext =
+                order.status === 'PLACED' && !isAdmin
+                  ? []
+                  : NEXT_ORDER_STATUSES[order.status] || [];
               const netPayable = Math.max(
                 0,
                 Number(order.totalAmount || 0) - Number(order.returnedAmount || 0)
               );
               const balanceDue = Math.max(0, netPayable - Number(order.paidAmount || 0));
-              const canModify = order.status === 'PLACED' || order.status === 'CONFIRMED';
+              const canModify = isAdmin
+                ? order.status === 'PLACED' || order.status === 'CONFIRMED'
+                : order.status === 'CONFIRMED';
               const canPay =
+                isAdmin &&
                 order.status !== 'CANCELLED' &&
                 order.status !== 'REJECTED' &&
                 balanceDue > 0.009;
@@ -1699,18 +1718,35 @@ export const SellerPortal: React.FC = () => {
                       <span className="font-mono font-bold text-sm text-slate-900">
                         Order #{order.id}
                       </span>
-                      <span className="ml-2 text-xs text-slate-600">
-                        Buyer: <strong>{order.customerName}</strong> ({order.customerMobile})
-                      </span>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        Placed: {new Date(order.orderDate).toLocaleString('en-IN')} • Address:{' '}
-                        {order.deliveryAddress}
-                      </div>
+                      {/* ✅ FIX 2: Seller ko Buyer ki details nahi dikhengi */}
+                      {isAdmin ? (
+                        <>
+                          <span className="ml-2 text-xs text-slate-600">
+                            Seller: <strong>{order.sellerBusinessName}</strong> (#{order.sellerId})
+                            {' • '}Buyer: <strong>{order.customerName}</strong> (
+                            {order.customerMobile})
+                          </span>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            Placed: {new Date(order.orderDate).toLocaleString('en-IN')} • Address:{' '}
+                            {order.deliveryAddress}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-semibold">
+                            Admin Verified Dispatch Order
+                          </span>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            Order Date: {new Date(order.orderDate).toLocaleString('en-IN')} •
+                            Dispatch: Admin Hub Verified
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-900 text-white">
-                        {order.status}
+                        {order.status === 'PLACED' ? 'AWAITING ADMIN' : order.status}
                       </span>
                       <span
                         className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -1730,7 +1766,9 @@ export const SellerPortal: React.FC = () => {
                           onClick={() => openModifyOrderModal(order)}
                           className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold"
                         >
-                          ✏️ Modify Items & Discount
+                          {isAdmin
+                            ? '✏️ Approve / Route to Sellers & Modify'
+                            : '✏️ Modify Items & Discount'}
                         </button>
                       )}
 
@@ -1788,7 +1826,7 @@ export const SellerPortal: React.FC = () => {
                           {item.itemNote ? (
                             <span className="text-amber-700 italic">
                               {' '}
-                              — Buyer Note: "{item.itemNote}"
+                              — Note: "{item.itemNote}"
                             </span>
                           ) : null}
                         </span>
@@ -1804,7 +1842,7 @@ export const SellerPortal: React.FC = () => {
                     <div>
                       {order.sellerRemarks && (
                         <span className="text-indigo-700 font-medium">
-                          💬 Seller Remarks: "{order.sellerRemarks}"
+                          💬 Remarks: "{order.sellerRemarks}"
                         </span>
                       )}
                     </div>
@@ -1834,7 +1872,7 @@ export const SellerPortal: React.FC = () => {
         )}
 
         {/* ===================================================================
-            TAB 4: INVENTORY & SKU CONTROL (Matches InventoryFragment.java)
+            TAB 4: INVENTORY & SKU CONTROL
            =================================================================== */}
         {activeTab === 'INVENTORY' && (
           <div className="space-y-4">
@@ -1945,7 +1983,14 @@ export const SellerPortal: React.FC = () => {
                     className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center"
                   >
                     <div className="space-y-1">
-                      <div className="font-bold text-slate-900 text-sm">{v.productName}</div>
+                      <div className="font-bold text-slate-900 text-sm">
+                        {v.productName}{' '}
+                        {isAdmin && (
+                          <span className="text-xs font-mono text-indigo-600">
+                            (Seller #{v.sellerId})
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs font-mono text-slate-500">
                         SKU: {v.sku} (#{v.id}) • Size: {v.size || 'Std'} • Color: {v.color || 'Std'}
                       </div>
@@ -2443,7 +2488,7 @@ export const SellerPortal: React.FC = () => {
         {activeTab === 'PARTIES' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4">
-              <h3 className="font-bold text-slate-900 text-base">B2B Customers Directory</h3>
+              <h3 className="font-bold text-slate-900 text-base">Offline POS Customers Directory</h3>
               <form onSubmit={handleCreateCustomer} className="grid grid-cols-3 gap-2">
                 <input
                   type="text"
@@ -2602,7 +2647,7 @@ export const SellerPortal: React.FC = () => {
               <div>
                 <h3 className="font-bold text-lg">
                   {editingProduct
-                    ? `Edit Product #${editingProduct.id}`
+                    ? `Edit Product #${editingProduct.id} (Seller #${editingProduct.sellerId})`
                     : 'Add New Wholesale Product'}
                 </h3>
                 <p className="text-[11px] text-slate-500">
@@ -2853,7 +2898,7 @@ export const SellerPortal: React.FC = () => {
               />
             </div>
 
-            {/* Variants Section with Quick Multi-Size Generator */}
+            {/* Variants Section */}
             <div className="space-y-2">
               <div className="flex flex-wrap justify-between items-center gap-2">
                 <span className="text-xs font-bold uppercase text-slate-600">
@@ -3126,7 +3171,7 @@ export const SellerPortal: React.FC = () => {
       )}
 
       {/* =====================================================================
-          MODAL 2: BATCH VARIANT STOCK UPDATE (Matches UpdateStockBottomSheet)
+          MODAL 2: BATCH VARIANT STOCK UPDATE
          ===================================================================== */}
       {batchStockProduct && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
@@ -3139,8 +3184,7 @@ export const SellerPortal: React.FC = () => {
                 Update Stock: {batchStockProduct.name}
               </h3>
               <p className="text-xs text-slate-500">
-                Style Code: {batchStockProduct.productCode} | Brand:{' '}
-                {batchStockProduct.brand || 'Generic'}
+                Style Code: {batchStockProduct.productCode} | Seller #{batchStockProduct.sellerId}
               </p>
             </div>
 
@@ -3196,26 +3240,30 @@ export const SellerPortal: React.FC = () => {
       )}
 
       {/* =====================================================================
-          MODAL 3: MODIFY / NEGOTIATE ORDER (Matches SaleAdapter.java)
+          MODAL 3: MODIFY / NEGOTIATE / MULTI-SELLER ROUTE ORDER
          ===================================================================== */}
       {modifyingOrder && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <h3 className="font-bold text-lg text-slate-900">
-              Modify Order #{modifyingOrder.id} (Set Qty = 0 to remove item)
+              {isAdmin
+                ? `Admin Review & Seller Routing — Order #${modifyingOrder.id}`
+                : `Modify Order #${modifyingOrder.id} (Set Qty = 0 to remove item)`}
             </h3>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Delivery Address
-              </label>
-              <input
-                type="text"
-                value={modAddress}
-                onChange={(e) => setModAddress(e.target.value)}
-                className="w-full px-3 py-2 text-xs border rounded-xl"
-              />
-            </div>
+            {isAdmin && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Delivery Address
+                </label>
+                <input
+                  type="text"
+                  value={modAddress}
+                  onChange={(e) => setModAddress(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border rounded-xl"
+                />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -3233,7 +3281,7 @@ export const SellerPortal: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Seller Remarks (Visible to Buyer)
+                  Remarks / Dispatch Note
                 </label>
                 <input
                   type="text"
@@ -3247,7 +3295,11 @@ export const SellerPortal: React.FC = () => {
 
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold uppercase text-slate-500">Order Line Items</span>
+                <span className="text-xs font-bold uppercase text-slate-500">
+                  {isAdmin
+                    ? 'Order Items (Select any Seller Variant to route/split order)'
+                    : 'Order Line Items'}
+                </span>
                 <button
                   type="button"
                   onClick={() =>
@@ -3276,7 +3328,9 @@ export const SellerPortal: React.FC = () => {
                 >
                   <div className="grid grid-cols-12 gap-2 items-center">
                     <div className="col-span-5">
-                      <label className="text-[10px] text-slate-400 block">Variant</label>
+                      <label className="text-[10px] text-slate-400 block">
+                        {isAdmin ? 'Seller & Variant' : 'Variant'}
+                      </label>
                       <select
                         value={item.variantId}
                         onChange={(e) => {
@@ -3295,7 +3349,8 @@ export const SellerPortal: React.FC = () => {
                       >
                         {allVariants.map((v) => (
                           <option key={v.id} value={v.id}>
-                            #{v.id} {v.sku} - {v.productName}
+                            {isAdmin ? `[Seller #${v.sellerId}] ` : ''}#{v.id} {v.sku} -{' '}
+                            {v.productName} (Stock: {v.stock})
                           </option>
                         ))}
                       </select>
@@ -3338,7 +3393,7 @@ export const SellerPortal: React.FC = () => {
                       next[idx].itemNote = e.target.value;
                       setModItems(next);
                     }}
-                    placeholder="Item Note (Visible to Buyer)"
+                    placeholder="Item Note"
                     className="w-full px-2 py-1 border rounded bg-white"
                   />
                 </div>
@@ -3365,7 +3420,7 @@ export const SellerPortal: React.FC = () => {
                 onClick={() => submitModifiedOrder(true)}
                 className="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold"
               >
-                Save & Confirm Order
+                {isAdmin ? 'Approve & Send to Seller(s)' : 'Save & Confirm Order'}
               </button>
             </div>
           </div>
@@ -3373,7 +3428,7 @@ export const SellerPortal: React.FC = () => {
       )}
 
       {/* =====================================================================
-          MODAL 4: RECORD ORDER PAYMENT (Matches SaleAdapter.showRecordPaymentDialog)
+          MODAL 4: RECORD ORDER PAYMENT
          ===================================================================== */}
       {paymentModalOrder && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
@@ -3386,7 +3441,7 @@ export const SellerPortal: React.FC = () => {
             </h3>
             <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
               <div>
-                Buyer: <strong>{paymentModalOrder.customerName}</strong>
+                Order Reference: <strong>#{paymentModalOrder.id}</strong>
               </div>
               <div>
                 Net Payable: ₹
@@ -3459,7 +3514,7 @@ export const SellerPortal: React.FC = () => {
       )}
 
       {/* =====================================================================
-          MODAL 5: MULTI-ITEM ORDER RETURN (Matches ReturnProcessActivity.java)
+          MODAL 5: MULTI-ITEM ORDER RETURN
          ===================================================================== */}
       {returnModalOrder && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
